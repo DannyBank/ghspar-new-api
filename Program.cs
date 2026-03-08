@@ -26,6 +26,15 @@ builder.Services.AddSignalR(opt =>
     opt.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
 });
 
+builder.Services.AddSingleton<GameSettingsService>(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    return new GameSettingsService
+    {
+        ReconnectGracePeriodSeconds = cfg.GetValue<int?>("GameSettings:ReconnectGracePeriodSeconds") ?? 60,
+        AdminKey                    = cfg.GetValue<string>("GameSettings:AdminKey") ?? "changeme",
+    };
+});
 builder.Services.AddSingleton<GameService>();
 builder.Services.AddScoped<AuthService>();
 

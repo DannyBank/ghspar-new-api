@@ -26,19 +26,35 @@ public class GameHub(GameService game) : Hub
             return;
         }
 
+        var wasDisconnected = room.Players[pid].IsDisconnected;
+
         game.RegisterConnection(Context.ConnectionId, code, pid);
         await Groups.AddToGroupAsync(Context.ConnectionId, code);
 
-        Console.WriteLine($"[Hub] JoinRoom code={code} pid={pid} connId={Context.ConnectionId}");
+        Console.WriteLine($"[Hub] JoinRoom code={code} pid={pid} reconnect={wasDisconnected}");
 
-        await Clients.OthersInGroup(code).SendAsync("PlayerJoined", new
+        if (wasDisconnected)
         {
-            playerId    = pid,
-            alias       = room.Players[pid].Alias,
-            playerCount = room.PlayerIds.Count,
-            maxPlayers  = room.MaxPlayers,
-        });
+            // Reconnection — notify others and broadcast full state (timer cancel handled in RegisterConnection)
+            await Clients.OthersInGroup(code).SendAsync("PlayerReconnected", new
+            {
+                playerId = pid,
+                alias    = room.Players[pid].Alias,
+            });
+        }
+        else
+        {
+            // Fresh join — notify others
+            await Clients.OthersInGroup(code).SendAsync("PlayerJoined", new
+            {
+                playerId    = pid,
+                alias       = room.Players[pid].Alias,
+                playerCount = room.PlayerIds.Count,
+                maxPlayers  = room.MaxPlayers,
+            });
+        }
 
+        // Always send full personalised game state to the joining/rejoining player
         await Clients.Caller.SendAsync("GameState", game.BuildState(code, pid));
     }
 
@@ -46,27 +62,11 @@ public class GameHub(GameService game) : Hub
     {
         var code = roomCode.Trim().ToUpper();
         var pid  = playerId.Trim().ToLower();
-
         Console.WriteLine($"[Hub] StartGame code={code} pid={pid}");
-
         var room = game.GetRoom(code);
-        if (room == null)
-        {
-            await Clients.Caller.SendAsync("Error", $"Room '{code}' not found");
-            return;
-        }
-        if (room.HostId != pid)
-        {
-            await Clients.Caller.SendAsync("Error", $"Only host can start. host={room.HostId} you={pid}");
-            return;
-        }
-        if (room.PlayerIds.Count < 2)
-        {
-            await Clients.Caller.SendAsync("Error", $"Need ≥2 players, have {room.PlayerIds.Count}");
-            return;
-        }
-
-        // Fire-and-forget on thread pool so the hub call returns immediately
+        if (room == null) { await Clients.Caller.SendAsync("Error", $"Room '{code}' not found"); return; }
+        if (room.HostId != pid) { await Clients.Caller.SendAsync("Error", $"Only host can start"); return; }
+        if (room.PlayerIds.Count < 2) { await Clients.Caller.SendAsync("Error", "Need ≥2 players"); return; }
         _ = Task.Run(() => game.StartGame(code));
     }
 
@@ -74,17 +74,15 @@ public class GameHub(GameService game) : Hub
     {
         var code = roomCode.Trim().ToUpper();
         var pid  = playerId.Trim().ToLower();
-
-        Console.WriteLine($"[Hub] PlayCard code={code} pid={pid} suit={suit} rank={rank}");
-
+        Console.WriteLine($"[Hub] PlayCard code={code} pid={pid} {suit}/{rank}");
         var ok = await game.PlayCard(code, pid, new GameCard(suit, rank));
-        if (!ok)
-            await Clients.Caller.SendAsync("Error", "Invalid move");
+        if (!ok) await Clients.Caller.SendAsync("Error", "Invalid move");
     }
 
     public override Task OnDisconnectedAsync(Exception? ex)
     {
-        game.UnregisterConnection(Context.ConnectionId);
+        // Use HandleDisconnect which starts the grace period instead of immediately cleaning up
+        game.HandleDisconnect(Context.ConnectionId);
         return base.OnDisconnectedAsync(ex);
     }
 }
