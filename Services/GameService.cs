@@ -249,6 +249,9 @@ public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFac
             gs.CurrentRound++;
             gs.RoundPlays.Clear();
             gs.LeadingCard = null;
+            // Snapshot hands NOW (start of new round) so Ogba check is accurate
+            foreach (var pid in room.PlayerIds)
+                gs.PriorHands[pid] = [.. gs.Hands.GetValueOrDefault(pid, [])];
             gs.Phase = "playing";
             gs.Message = $"Round {gs.CurrentRound} — {room.Players[gs.LeadPlayerId!].Alias} leads.";
             await BroadcastPersonalisedState(code);
