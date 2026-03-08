@@ -37,7 +37,7 @@ public class PlayersController(AppDbContext db, AuthService auth) : ControllerBa
         return Ok(new
         {
             OTP        = otp,   // remove from production response once SMS is live
-            PlayerData = new { id = player.Id, player.Username, player.Alias, player.Msisdn, player.SparCoins }
+            PlayerData = new { id = player.Id, player.Username, player.Alias, player.Msisdn, player.MoMo, player.SparCoins, player.IsActive }
         });
     }
 
@@ -58,7 +58,7 @@ public class PlayersController(AppDbContext db, AuthService auth) : ControllerBa
         {
             found      = true,
             OTP        = otp,
-            PlayerData = new { id = player.Id, player.Username, player.Alias, player.Msisdn, player.SparCoins }
+            PlayerData = new { id = player.Id, player.Username, player.Alias, player.Msisdn, player.MoMo, player.SparCoins, player.IsActive }
         });
     }
 

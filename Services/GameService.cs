@@ -120,9 +120,10 @@ public class GameService(IServiceScopeFactory scopeFactory)
             GamesPerMatch = gamesPerMatch,
             OgbaEnabled   = ogbaEnabled,
         };
-        room.PlayerIds.Add(hostId);
-        room.Players[hostId]          = new RoomPlayer { Alias = hostAlias };
-        room.State.GameScores[hostId] = 0;
+        var hid = hostId.Trim().ToLower();
+        room.PlayerIds.Add(hid);
+        room.Players[hid]             = new RoomPlayer { Alias = hostAlias };
+        room.State.GameScores[hid]    = 0;
         room.State.Message            = "Waiting for players…";
         _rooms[code.ToUpper()]        = room;
         return room;
@@ -133,10 +134,11 @@ public class GameService(IServiceScopeFactory scopeFactory)
         var room = GetRoom(code);
         if (room == null)                            return (false, "Room not found");
         if (room.PlayerIds.Count >= room.MaxPlayers) return (false, "Room is full");
-        if (room.PlayerIds.Contains(playerId))       return (false, "Already in room");
-        room.PlayerIds.Add(playerId);
-        room.Players[playerId]          = new RoomPlayer { Alias = alias };
-        room.State.GameScores[playerId] = 0;
+        if (room.PlayerIds.Any(p => p.ToLower() == playerId.ToLower())) return (false, "Already in room");
+        var npid = playerId.Trim().ToLower();
+        room.PlayerIds.Add(npid);
+        room.Players[npid]          = new RoomPlayer { Alias = alias };
+        room.State.GameScores[npid] = 0;
         return (true, null);
     }
 

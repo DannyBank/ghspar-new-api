@@ -27,7 +27,7 @@ public class RoomsController(AppDbContext db, GameService game) : ControllerBase
 
         var match = new Match
         {
-            PlayerIds    = System.Text.Json.JsonSerializer.Serialize(new[] { req.PlayerId }),
+            PlayerIds    = System.Text.Json.JsonSerializer.Serialize(new[] { req.PlayerId.Trim().ToLower() }),
             Mode         = "multiplayer",
             StakeAmount  = req.StakeAmount,
             GamesPerMatch = req.GamesPerMatch,
@@ -37,7 +37,8 @@ public class RoomsController(AppDbContext db, GameService game) : ControllerBase
         await db.SaveChangesAsync();
 
         var code = game.NewRoomCode();
-        game.CreateRoom(code, match.Id, req.PlayerId, req.Alias,
+        var pid  = req.PlayerId.Trim().ToLower();
+        game.CreateRoom(code, match.Id, pid, req.Alias,
             req.MaxPlayers, req.StakeAmount, req.GamesPerMatch, req.OgbaEnabled);
 
         return Ok(new { roomCode = code, matchId = match.Id });

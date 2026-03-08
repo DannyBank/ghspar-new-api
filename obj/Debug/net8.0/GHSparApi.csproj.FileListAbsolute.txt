@@ -113,3 +113,4 @@ C:\Users\ACS Manager\Downloads\GHSparApi\GHSparApi\obj\Debug\net8.0\refint\GHSpa
 C:\Users\ACS Manager\Downloads\GHSparApi\GHSparApi\obj\Debug\net8.0\GHSparApi.pdb
 C:\Users\ACS Manager\Downloads\GHSparApi\GHSparApi\obj\Debug\net8.0\GHSparApi.genruntimeconfig.cache
 C:\Users\ACS Manager\Downloads\GHSparApi\GHSparApi\obj\Debug\net8.0\ref\GHSparApi.dll
+C:\Users\ACS Manager\Downloads\GHSparApi\GHSparApi\obj\Debug\net8.0\GHSparApi.sourcelink.json
