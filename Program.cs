@@ -32,6 +32,7 @@ builder.Services.AddSingleton<GameSettingsService>(sp =>
     return new GameSettingsService
     {
         ReconnectGracePeriodSeconds = cfg.GetValue<int?>("GameSettings:ReconnectGracePeriodSeconds") ?? 60,
+        RoundResultDelaySeconds     = cfg.GetValue<int?>("GameSettings:RoundResultDelaySeconds") ?? 4,
         AdminKey                    = cfg.GetValue<string>("GameSettings:AdminKey") ?? "changeme",
     };
 });

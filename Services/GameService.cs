@@ -351,7 +351,7 @@ public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFac
             : $"No winner for round {gs.CurrentRound}.";
         gs.Phase = "roundResult";
         await BroadcastPersonalisedState(code);
-        await Task.Delay(2000);
+        await Task.Delay(settings.RoundResultDelaySeconds * 1000);
 
         bool handsEmpty = room.PlayerIds.All(p => !gs.Hands.GetValueOrDefault(p, []).Any());
         if (gs.CurrentRound >= 5 || handsEmpty || gs.Disqualified.Count > 0)

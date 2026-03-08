@@ -11,6 +11,10 @@ public class GameSettingsService
     /// Default loaded from "GameSettings:ReconnectGracePeriodSeconds" in appsettings.json.
     public int ReconnectGracePeriodSeconds { get; set; } = 60;
 
+    /// Delay (seconds) between all cards being played and the round result overlay appearing.
+    /// Default loaded from "GameSettings:RoundResultDelaySeconds" in appsettings.json.
+    public int RoundResultDelaySeconds { get; set; } = 4;
+
     /// Secret key required for admin endpoints.
     /// Set via "GameSettings:AdminKey" in appsettings.json or an env var.
     public string AdminKey { get; set; } = "changeme";

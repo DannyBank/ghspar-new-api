@@ -24,6 +24,7 @@ public class AdminController(GameSettingsService settings) : ControllerBase
         return Ok(new
         {
             reconnectGracePeriodSeconds = settings.ReconnectGracePeriodSeconds,
+            roundResultDelaySeconds     = settings.RoundResultDelaySeconds,
         });
     }
 
@@ -44,12 +45,21 @@ public class AdminController(GameSettingsService settings) : ControllerBase
             settings.ReconnectGracePeriodSeconds = v;
         }
 
+        if (req.RoundResultDelaySeconds.HasValue)
+        {
+            var v = req.RoundResultDelaySeconds.Value;
+            if (v < 1 || v > 30)
+                return BadRequest(new { error = "Round result delay must be 1–30 seconds" });
+            settings.RoundResultDelaySeconds = v;
+        }
+
         return Ok(new
         {
             message = "Settings updated",
             reconnectGracePeriodSeconds = settings.ReconnectGracePeriodSeconds,
+            roundResultDelaySeconds     = settings.RoundResultDelaySeconds,
         });
     }
 }
 
-public record UpdateSettingsRequest(int? ReconnectGracePeriodSeconds);
+public record UpdateSettingsRequest(int? ReconnectGracePeriodSeconds, int? RoundResultDelaySeconds);
