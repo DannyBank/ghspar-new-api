@@ -11,6 +11,8 @@ namespace GHSparApi.Controllers;
 public class RoomsController(AppDbContext db, GameService game) : ControllerBase
 {
     // POST /api/rooms/create
+    // Stake is NOT deducted here — it is deducted for all players when the host
+    // calls StartGame, so no one loses coins just for creating or joining a room.
     [HttpPost("create")]
     public async Task<IActionResult> Create([FromBody] CreateRoomRequest req)
     {
@@ -19,19 +21,19 @@ public class RoomsController(AppDbContext db, GameService game) : ControllerBase
 
         int totalStake = req.StakeAmount * req.GamesPerMatch;
         var player = await db.Players.FindAsync(playerId);
-        if (player == null)      return NotFound(new { error = "Player not found" });
+        if (player == null) return NotFound(new { error = "Player not found" });
+
+        // Balance check only — no deduction yet
         if (player.SparCoins < totalStake)
             return BadRequest(new { error = $"Insufficient SparCoins (need {totalStake})" });
 
-        player.SparCoins -= totalStake;
-
         var match = new Match
         {
-            PlayerIds    = System.Text.Json.JsonSerializer.Serialize(new[] { req.PlayerId.Trim().ToLower() }),
-            Mode         = "multiplayer",
-            StakeAmount  = req.StakeAmount,
+            PlayerIds     = System.Text.Json.JsonSerializer.Serialize(new[] { req.PlayerId.Trim().ToLower() }),
+            Mode          = "multiplayer",
+            StakeAmount   = req.StakeAmount,
             GamesPerMatch = req.GamesPerMatch,
-            OgbaEnabled  = req.OgbaEnabled,
+            OgbaEnabled   = req.OgbaEnabled,
         };
         db.Matches.Add(match);
         await db.SaveChangesAsync();
@@ -45,6 +47,7 @@ public class RoomsController(AppDbContext db, GameService game) : ControllerBase
     }
 
     // POST /api/rooms/{code}/join
+    // Stake is NOT deducted here — deducted at game start for all players together.
     [HttpPost("{roomCode}/join")]
     public async Task<IActionResult> Join(string roomCode, [FromBody] JoinRoomRequest req)
     {
@@ -56,14 +59,15 @@ public class RoomsController(AppDbContext db, GameService game) : ControllerBase
 
         int totalStake = room.StakeAmount * room.GamesPerMatch;
         var player = await db.Players.FindAsync(playerId);
-        if (player == null)      return NotFound(new { error = "Player not found" });
+        if (player == null) return NotFound(new { error = "Player not found" });
+
+        // Balance check only — no deduction yet
         if (player.SparCoins < totalStake)
             return BadRequest(new { error = $"Insufficient SparCoins (need {totalStake})" });
 
         var (ok, error) = game.AddPlayer(roomCode, req.PlayerId, req.Alias);
         if (!ok) return BadRequest(new { error });
 
-        player.SparCoins -= totalStake;
         await db.SaveChangesAsync();
 
         return Ok(new

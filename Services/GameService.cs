@@ -290,6 +290,33 @@ public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFac
         var room = GetRoom(code);
         if (room == null) return;
         Console.WriteLine($"[Game] StartGame code={code} players={string.Join(",", room.PlayerIds)}");
+
+        // ── Deduct stakes from every player now that the game is actually starting ──
+        int stakePerPlayer = room.StakeAmount * room.GamesPerMatch;
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            foreach (var pid in room.PlayerIds)
+            {
+                if (!Guid.TryParse(pid, out var guid)) continue;
+                var p = await db.Players.FindAsync(guid);
+                if (p == null) continue;
+                p.SparCoins -= stakePerPlayer;
+                db.TransactionHistories.Add(new TransactionHistory
+                {
+                    UserId          = p.Id,
+                    TransactionType = "debit",
+                    Source          = "stake",
+                    Reference       = $"STAKE-{room.MatchId}",
+                    Amount          = stakePerPlayer,
+                    BalanceAfter    = p.SparCoins,
+                    Description     = $"Stake for match in room {code}",
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         var gs   = room.State;
         var deck = BuildDeck();
         gs.Hands.Clear(); gs.PriorHands.Clear();
