@@ -193,8 +193,12 @@ public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFac
         hand.Remove(match);
         gs.RoundPlays[playerId] = match;
 
+        // First card of the round must come from the designated lead player
         if (gs.LeadingCard == null)
+        {
+            if (playerId != gs.LeadPlayerId) return false;
             gs.LeadingCard = match;
+        }
 
         await BroadcastPersonalisedState(code);
         await AttemptResolve(code);
