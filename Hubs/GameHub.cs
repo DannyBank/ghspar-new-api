@@ -79,6 +79,26 @@ public class GameHub(GameService game) : Hub
         if (!ok) await Clients.Caller.SendAsync("Error", "Invalid move");
     }
 
+    public async Task LeaveRoom(string roomCode, string playerId)
+    {
+        var code  = roomCode.Trim().ToUpper();
+        var pid   = playerId.Trim().ToLower();
+        Console.WriteLine($"[Hub] LeaveRoom code={code} pid={pid}");
+
+        // Read alias before removing
+        var alias = game.GetRoom(code)?.Players.GetValueOrDefault(pid)?.Alias ?? pid;
+
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, code);
+        game.RemovePlayer(code, pid);
+
+        // Notify remaining players
+        await Clients.Group(code).SendAsync("PlayerLeft", new
+        {
+            playerId = pid,
+            alias,
+        });
+    }
+
     public override Task OnDisconnectedAsync(Exception? ex)
     {
         // Use HandleDisconnect which starts the grace period instead of immediately cleaning up

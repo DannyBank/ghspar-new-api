@@ -121,6 +121,30 @@ public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFac
         return (true, null);
     }
 
+    // Removes a player who voluntarily leaves the lobby.
+    // If the host leaves, the room is dissolved entirely.
+    public void RemovePlayer(string code, string playerId)
+    {
+        var room = GetRoom(code);
+        if (room == null) return;
+        var pid = playerId.Trim().ToLower();
+
+        // Cancel any pending forfeit timer for this player
+        if (room.Players.TryGetValue(pid, out var rp))
+        {
+            rp.ForfeitCts?.Cancel();
+            rp.ForfeitCts = null;
+        }
+
+        room.PlayerIds.Remove(pid);
+        room.Players.Remove(pid);
+        room.State.GameScores.Remove(pid);
+
+        // If the room is now empty or the host left, remove the whole room
+        if (room.PlayerIds.Count == 0 || pid == room.HostId)
+            _rooms.TryRemove(code.ToUpper(), out _);
+    }
+
     public void RegisterConnection(string connectionId, string roomCode, string playerId)
     {
         _connMap[connectionId] = (roomCode.ToUpper(), playerId);
