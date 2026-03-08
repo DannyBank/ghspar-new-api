@@ -1,13 +1,9 @@
 // Services/GameService.cs
-// Room state is kept in-memory for real-time speed.
-// Match outcomes are persisted to PostgreSQL via a scoped DbContext.
-// The hub context is injected via the constructor from DI — no circular dependency.
-
 using System.Collections.Concurrent;
 using GHSparApi.Data;
+using GHSparApi.Hubs;
 using GHSparApi.Models;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace GHSparApi.Services;
 
@@ -62,34 +58,12 @@ public class Room
 }
 
 // ── GameService ────────────────────────────────────────────────────────────────
-// HubContext is injected via a Func<IHubClients> factory to avoid the circular
-// dependency that would arise from referencing GameHub directly.
-// In practice we inject IHubContext<dynamic> workaround via IHubContext abstraction
-// stored as a field after first use (set by GameHub on first call).
-
-public class GameService(IServiceScopeFactory scopeFactory)
+// IHubContext<GameHub> is safe to inject into a singleton — it is itself a
+// singleton-safe abstraction provided by ASP.NET Core SignalR.
+public class GameService(IHubContext<GameHub> hub, IServiceScopeFactory scopeFactory)
 {
     private readonly ConcurrentDictionary<string, Room> _rooms   = new();
     private readonly ConcurrentDictionary<string, (string Room, string Player)> _connMap = new();
-
-    // Set by GameHub the first time it calls into us, giving us a way to send
-    // messages without a compile-time reference to GameHub.
-    private IClientProxy?        _allClients;   // not used — we use per-connection
-    private Func<string, IClientProxy>? _clientById;   // connId → proxy
-    private Func<string, IGroupManager>? _groups;
-
-    // Simpler: store the hub's SendAsync capability as a delegate
-    private Func<string, string, object, Task>? _sendToConn;
-    private Func<string, string, object, Task>? _sendToGroup;
-
-    /// Called by GameHub to wire up send delegates — avoids circular type reference.
-    public void SetHubDelegates(
-        Func<string, string, object, Task> sendToConn,
-        Func<string, string, object, Task> sendToGroup)
-    {
-        _sendToConn  = sendToConn;
-        _sendToGroup = sendToGroup;
-    }
 
     private static readonly string[] Suits = ["hearts","diamonds","clubs","spades"];
     private static readonly string[] Ranks = ["six","seven","eight","nine","ten","jack","queen","king","ace"];
@@ -111,21 +85,21 @@ public class GameService(IServiceScopeFactory scopeFactory)
     public Room CreateRoom(string code, Guid matchId, string hostId, string hostAlias,
         int maxPlayers, int stakeAmount, int gamesPerMatch, bool ogbaEnabled)
     {
+        var hid  = hostId.Trim().ToLower();
         var room = new Room
         {
             MatchId       = matchId,
-            HostId        = hostId,
+            HostId        = hid,
             MaxPlayers    = maxPlayers,
             StakeAmount   = stakeAmount,
             GamesPerMatch = gamesPerMatch,
             OgbaEnabled   = ogbaEnabled,
         };
-        var hid = hostId.Trim().ToLower();
         room.PlayerIds.Add(hid);
-        room.Players[hid]             = new RoomPlayer { Alias = hostAlias };
-        room.State.GameScores[hid]    = 0;
-        room.State.Message            = "Waiting for players…";
-        _rooms[code.ToUpper()]        = room;
+        room.Players[hid]          = new RoomPlayer { Alias = hostAlias };
+        room.State.GameScores[hid] = 0;
+        room.State.Message         = "Waiting for players…";
+        _rooms[code.ToUpper()]     = room;
         return room;
     }
 
@@ -134,8 +108,8 @@ public class GameService(IServiceScopeFactory scopeFactory)
         var room = GetRoom(code);
         if (room == null)                            return (false, "Room not found");
         if (room.PlayerIds.Count >= room.MaxPlayers) return (false, "Room is full");
-        if (room.PlayerIds.Any(p => p.ToLower() == playerId.ToLower())) return (false, "Already in room");
         var npid = playerId.Trim().ToLower();
+        if (room.PlayerIds.Any(p => p == npid))     return (false, "Already in room");
         room.PlayerIds.Add(npid);
         room.Players[npid]          = new RoomPlayer { Alias = alias };
         room.State.GameScores[npid] = 0;
@@ -161,12 +135,12 @@ public class GameService(IServiceScopeFactory scopeFactory)
         }
     }
 
-    // ── Internal send helpers ─────────────────────────────────────────────────
+    // ── Send helpers (use IHubContext — works from any thread/scope) ──────────
     private Task SendToConn(string connId, string method, object payload)
-        => _sendToConn?.Invoke(connId, method, payload) ?? Task.CompletedTask;
+        => hub.Clients.Client(connId).SendAsync(method, payload);
 
     private Task SendToGroup(string group, string method, object payload)
-        => _sendToGroup?.Invoke(group, method, payload) ?? Task.CompletedTask;
+        => hub.Clients.Group(group).SendAsync(method, payload);
 
     // ── Deck ──────────────────────────────────────────────────────────────────
     private static List<GameCard> BuildDeck()
@@ -179,6 +153,7 @@ public class GameService(IServiceScopeFactory scopeFactory)
         var room = GetRoom(code);
         if (room == null) return;
 
+        Console.WriteLine($"[Game] StartGame code={code} players={string.Join(",", room.PlayerIds)}");
         var gs   = room.State;
         var deck = BuildDeck();
         gs.Hands.Clear(); gs.PriorHands.Clear();
@@ -191,29 +166,12 @@ public class GameService(IServiceScopeFactory scopeFactory)
         }
         gs.Rounds.Clear();
         gs.CurrentRound  = 1;
-        gs.LeadPlayerId  = null;
+        gs.LeadPlayerId  = room.PlayerIds[Random.Shared.Next(room.PlayerIds.Count)];
         gs.Disqualified.Clear();
         gs.RoundPlays.Clear();
         gs.LeadingCard   = null;
-        gs.Phase         = "dealing";
-        gs.Message       = $"Game {gs.CurrentGame} of {room.GamesPerMatch} — cards dealt!";
-
-        await BroadcastPersonalisedState(code);
-        await Task.Delay(1000);
-        await StartRound(code);
-    }
-
-    private async Task StartRound(string code)
-    {
-        var room = GetRoom(code);
-        if (room == null) return;
-        var gs = room.State;
-        gs.RoundPlays.Clear();
-        gs.LeadingCard  = null;
-        gs.LeadPlayerId ??= room.PlayerIds[gs.CurrentRound % room.PlayerIds.Count];
-
-        gs.Phase   = "playerTurn";
-        gs.Message = $"Round {gs.CurrentRound}: {room.Players[gs.LeadPlayerId].Alias} leads";
+        gs.Phase         = "playing";
+        gs.Message       = $"Game {gs.CurrentGame} of {room.GamesPerMatch} — cards dealt! {room.Players[gs.LeadPlayerId].Alias} leads.";
         await BroadcastPersonalisedState(code);
     }
 
@@ -222,25 +180,23 @@ public class GameService(IServiceScopeFactory scopeFactory)
         var room = GetRoom(code);
         if (room == null) return false;
         var gs = room.State;
-        if (gs.Phase != "playerTurn")            return false;
+        if (gs.Phase != "playing") return false;
+        if (gs.Disqualified.Contains(playerId)) return false;
         if (gs.RoundPlays.ContainsKey(playerId)) return false;
-        if (gs.Disqualified.Contains(playerId))  return false;
 
-        var hand   = gs.Hands.GetValueOrDefault(playerId);
-        var inHand = hand?.FirstOrDefault(c => c.Suit == card.Suit && c.Rank == card.Rank);
-        if (inHand == null) return false;
+        var hand = gs.Hands.GetValueOrDefault(playerId, []);
+        var match = hand.FirstOrDefault(c =>
+            c.Suit.Equals(card.Suit, StringComparison.OrdinalIgnoreCase) &&
+            c.Rank.Equals(card.Rank, StringComparison.OrdinalIgnoreCase));
+        if (match == null) return false;
 
-        hand!.Remove(inHand);
-        gs.RoundPlays[playerId] = inHand;
-        gs.LeadingCard ??= inHand;
+        hand.Remove(match);
+        gs.RoundPlays[playerId] = match;
 
-        await SendToGroup(code, "CardPlayed", new
-        {
-            playerId,
-            alias = room.Players[playerId].Alias,
-            card  = new { inHand.Suit, inHand.Rank }
-        });
+        if (gs.LeadingCard == null)
+            gs.LeadingCard = match;
 
+        await BroadcastPersonalisedState(code);
         await AttemptResolve(code);
         return true;
     }
@@ -288,7 +244,15 @@ public class GameService(IServiceScopeFactory scopeFactory)
         bool handsEmpty = room.PlayerIds.All(p => !gs.Hands.GetValueOrDefault(p, []).Any());
         if (gs.CurrentRound >= 5 || handsEmpty || gs.Disqualified.Count > 0)
             await EndGame(code);
-        else { gs.CurrentRound++; await StartRound(code); }
+        else
+        {
+            gs.CurrentRound++;
+            gs.RoundPlays.Clear();
+            gs.LeadingCard = null;
+            gs.Phase = "playing";
+            gs.Message = $"Round {gs.CurrentRound} — {room.Players[gs.LeadPlayerId!].Alias} leads.";
+            await BroadcastPersonalisedState(code);
+        }
     }
 
     private async Task EndGame(string code)
@@ -384,6 +348,7 @@ public class GameService(IServiceScopeFactory scopeFactory)
             : "It's a draw! Pot split.";
         gs.Phase = "gameOver";
         await BroadcastPersonalisedState(code);
+        _rooms.TryRemove(code, out _); // clean up finished room
     }
 
     // ── Personalised broadcast ────────────────────────────────────────────────
@@ -412,7 +377,7 @@ public class GameService(IServiceScopeFactory scopeFactory)
                 alias     = room.Players[pid].Alias,
                 handCount = hand.Count,
                 hand      = pid == viewerId
-                    ? (object)hand.Select(c => new { c.Suit, c.Rank }).ToList()
+                    ? (object)hand.Select(c => new { suit = c.Suit, rank = c.Rank }).ToList()
                     : Array.Empty<object>(),
                 gameScore = gs.GameScores.GetValueOrDefault(pid, 0),
             };
@@ -428,9 +393,9 @@ public class GameService(IServiceScopeFactory scopeFactory)
             currentRound  = gs.CurrentRound,
             leadPlayerId  = gs.LeadPlayerId,
             leadingCard   = gs.LeadingCard != null
-                ? (object)new { gs.LeadingCard.Suit, gs.LeadingCard.Rank } : null,
+                ? (object)new { suit = gs.LeadingCard.Suit, rank = gs.LeadingCard.Rank } : null,
             roundPlays    = gs.RoundPlays.ToDictionary(
-                kv => kv.Key, kv => (object)new { kv.Value.Suit, kv.Value.Rank }),
+                kv => kv.Key, kv => (object)new { suit = kv.Value.Suit, rank = kv.Value.Rank }),
             message       = gs.Message,
             players,
             disqualified  = gs.Disqualified,
