@@ -19,14 +19,24 @@ public class PurchasesController(AppDbContext db) : ControllerBase
         Request.Headers.TryGetValue("X-Player-Id", out var v) && Guid.TryParse(v, out var g) ? g : null;
 
     // POST /api/purchase/initiate
+    // While Paystack is not yet integrated, this endpoint immediately credits the
+    // player's SparCoins and marks the transaction as success (mock payment).
+    // Once Paystack is live: remove the credit block here, uncomment the redirect
+    // URL return, and let the webhook handler below do the crediting instead.
     [HttpPost("initiate")]
     public async Task<IActionResult> Initiate([FromBody] PurchaseInitiateRequest req)
     {
         var pid = RequestPlayerId;
         if (pid == null) return Unauthorized();
 
-        int ghs = (GhsDiscounts.TryGetValue(req.Amount, out var d) ? d : req.Amount * 2) * 100;
-        var txRef = $"SC-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var player = await db.Players.FindAsync(pid.Value);
+        if (player == null) return NotFound(new { error = "Player not found" });
+
+        int ghsPesewas = (GhsDiscounts.TryGetValue(req.Amount, out var d) ? d : req.Amount * 2) * 100;
+        var txRef = $"SC-MOCK-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+
+        // ── MOCK: credit coins immediately ───────────────────────────────────
+        player.SparCoins += req.Amount;
 
         db.PurchaseTransactions.Add(new PurchaseTransaction
         {
@@ -34,19 +44,35 @@ public class PurchasesController(AppDbContext db) : ControllerBase
             Reference         = txRef,
             PaymentMethod     = req.PaymentMethod,
             AmountInSparcoins = req.Amount,
-            AmountInCurrency  = ghs,
+            AmountInCurrency  = ghsPesewas,
+            Status            = "success",
+            CompletedAt       = DateTime.UtcNow,
         });
+        db.TransactionHistories.Add(new TransactionHistory
+        {
+            UserId          = pid.Value,
+            TransactionType = "credit",
+            Source          = "purchase",
+            Reference       = txRef,
+            Amount          = req.Amount,
+            BalanceAfter    = player.SparCoins,
+            Description     = $"Purchased {req.Amount} SparCoins (mock payment)",
+        });
+        // ─────────────────────────────────────────────────────────────────────
+
         await db.SaveChangesAsync();
 
         return Ok(new
         {
-            message              = "Transaction initiated",
+            status               = "success",
+            message              = "Payment successful (mock). SparCoins credited.",
             transactionReference = txRef,
-            paystackRedirectUrl  = $"https://paystack.com/pay/{txRef}"
+            newBalance           = player.SparCoins,
+            // paystackRedirectUrl = $"https://paystack.com/pay/{txRef}"  // enable when live
         });
     }
 
-    // POST /api/purchase/webhook  (Paystack calls this on charge.success)
+    // POST /api/purchase/webhook  (Paystack calls this on charge.success when live)
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook([FromBody] JsonElement payload)
     {
@@ -106,6 +132,8 @@ public class WithdrawalsController(AppDbContext db) : ControllerBase
         Request.Headers.TryGetValue("X-Player-Id", out var v) && Guid.TryParse(v, out var g) ? g : null;
 
     // POST /api/withdrawals/initiate
+    // Mock: deducts balance and records the withdrawal as "pending".
+    // No actual MoMo transfer is made until Paystack Transfer API is integrated.
     [HttpPost("initiate")]
     public async Task<IActionResult> Initiate([FromBody] WithdrawalRequest req)
     {
@@ -113,12 +141,12 @@ public class WithdrawalsController(AppDbContext db) : ControllerBase
         if (pid == null) return Unauthorized();
 
         var player = await db.Players.FindAsync(pid.Value);
-        if (player == null)              return NotFound();
-        if (player.SparCoins < 10)       return BadRequest(new { error = "Minimum balance of 10 SparCoins required" });
-        if (req.Amount < 5)              return BadRequest(new { error = "Minimum withdrawal is 5 SparCoins" });
+        if (player == null)                return NotFound();
+        if (player.SparCoins < 10)         return BadRequest(new { error = "Minimum balance of 10 SparCoins required" });
+        if (req.Amount < 5)                return BadRequest(new { error = "Minimum withdrawal is 5 SparCoins" });
         if (player.SparCoins < req.Amount) return BadRequest(new { error = "Insufficient balance" });
 
-        var wdRef = $"WD-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        var wdRef = $"WD-MOCK-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
         player.SparCoins -= req.Amount;
 
         db.Withdrawals.Add(new Withdrawal
@@ -126,23 +154,29 @@ public class WithdrawalsController(AppDbContext db) : ControllerBase
             UserId            = pid.Value,
             Reference         = wdRef,
             AmountInSparcoins = req.Amount,
-            AmountInCurrency  = req.Amount * 200,  // 1 SC = GHS 2 = 200 pesewas
+            AmountInCurrency  = req.Amount * 200,
             RecipientPhone    = req.RecipientPhone,
+            Status            = "pending",  // will be "success" once Paystack Transfer is live
         });
         db.TransactionHistories.Add(new TransactionHistory
         {
             UserId = pid.Value, TransactionType = "debit", Source = "withdrawal",
             Reference = wdRef, Amount = req.Amount,
             BalanceAfter = player.SparCoins,
-            Description  = $"Withdrawal to MoMo {req.RecipientPhone}"
+            Description  = $"Withdrawal to MoMo {req.RecipientPhone} (mock — pending transfer)"
         });
         await db.SaveChangesAsync();
-        // TODO: trigger Paystack Transfer API
 
-        return Ok(new { status = "success", message = "Withdrawal initiated", transactionReference = wdRef });
+        return Ok(new
+        {
+            status               = "success",
+            message              = $"Withdrawal of {req.Amount} SC queued. MoMo transfer pending (mock).",
+            transactionReference = wdRef,
+            newBalance           = player.SparCoins,
+        });
     }
 
-    // POST /api/withdrawals/webhook
+    // POST /api/withdrawals/webhook  (Paystack Transfer webhook — used when live)
     [HttpPost("webhook")]
     public async Task<IActionResult> Webhook([FromBody] JsonElement payload)
     {
@@ -203,7 +237,6 @@ public class TransactionsController(AppDbContext db) : ControllerBase
     private Guid? RequestPlayerId =>
         Request.Headers.TryGetValue("X-Player-Id", out var v) && Guid.TryParse(v, out var g) ? g : null;
 
-    // GET /api/transactions
     [HttpGet]
     public async Task<IActionResult> Get()
     {
