@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GHSparApi")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2c73b9ce0a61a3d13534b8efd31501451507588f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8906ab91676ec30667e826d7edcc3908d0612655")]
 [assembly: System.Reflection.AssemblyProductAttribute("GHSparApi")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GHSparApi")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

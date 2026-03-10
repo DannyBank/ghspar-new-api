@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\ACS Manager\\Downloads\\GHSparApi\\GHSparApi\\GHSparApi.csproj": {}
+    "C:\\Users\\ACS Manager\\Downloads\\2026\\Personal\\Projects\\GHSparApi\\GHSparApi\\GHSparApi.csproj": {}
   },
   "projects": {
-    "C:\\Users\\ACS Manager\\Downloads\\GHSparApi\\GHSparApi\\GHSparApi.csproj": {
+    "C:\\Users\\ACS Manager\\Downloads\\2026\\Personal\\Projects\\GHSparApi\\GHSparApi\\GHSparApi.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\ACS Manager\\Downloads\\GHSparApi\\GHSparApi\\GHSparApi.csproj",
+        "projectUniqueName": "C:\\Users\\ACS Manager\\Downloads\\2026\\Personal\\Projects\\GHSparApi\\GHSparApi\\GHSparApi.csproj",
         "projectName": "GHSparApi",
-        "projectPath": "C:\\Users\\ACS Manager\\Downloads\\GHSparApi\\GHSparApi\\GHSparApi.csproj",
+        "projectPath": "C:\\Users\\ACS Manager\\Downloads\\2026\\Personal\\Projects\\GHSparApi\\GHSparApi\\GHSparApi.csproj",
         "packagesPath": "C:\\Users\\ACS Manager\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\ACS Manager\\Downloads\\GHSparApi\\GHSparApi\\obj\\",
+        "outputPath": "C:\\Users\\ACS Manager\\Downloads\\2026\\Personal\\Projects\\GHSparApi\\GHSparApi\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
